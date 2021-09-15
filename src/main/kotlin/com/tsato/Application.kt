@@ -1,5 +1,6 @@
 package com.tsato
 
+import com.tsato.routes.createRoomRoutes
 import com.tsato.session.DrawingSession
 import io.ktor.application.*
 import io.ktor.response.*
@@ -17,6 +18,8 @@ import java.time.*
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
+val server = DrawingServer()
+
 @Suppress("unused") // referenced in Application.conf
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
@@ -31,11 +34,15 @@ fun Application.module(testing: Boolean = false) {
         }
     }
 
+    install(WebSockets)
+    install(Routing) {
+        createRoomRoutes()
+    }
+
     install(ContentNegotiation) {
         gson {
         }
     }
 
     install(CallLogging)
-    install(WebSockets)
 }
