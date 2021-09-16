@@ -1,6 +1,7 @@
 package com.tsato
 
 import com.tsato.routes.createRoomRoutes
+import com.tsato.routes.getRoomsRoute
 import com.tsato.session.DrawingSession
 import io.ktor.application.*
 import io.ktor.response.*
@@ -37,6 +38,7 @@ fun Application.module(testing: Boolean = false) {
     install(WebSockets)
     install(Routing) {
         createRoomRoutes()
+        getRoomsRoute()
     }
 
     install(ContentNegotiation) {
