@@ -1,15 +1,19 @@
 package com.tsato.data
 
 import com.tsato.data.models.Announcement
+import com.tsato.data.models.PhaseChange
 import com.tsato.gson
 import io.ktor.http.cio.websocket.*
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.*
 
 class Room(
     val name: String,
     val maxPlayers: Int,
     var players: List<Player> = listOf()
 ) {
+    private var timerJob: Job? = null
+    private var drawingPlayer: Player? = null
+
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
         set(value) {
@@ -63,6 +67,32 @@ class Room(
         return player
     }
 
+    private fun timeAndNotify(ms: Long) { // millisecond until we switch to the next phase
+        timerJob?.cancel()
+        timerJob = GlobalScope.launch { // it's ok to use global scope because of no lifecycle on server side
+            val phaseChange = PhaseChange(
+                phase, ms, drawingPlayer?.userName
+            )
+
+            repeat((ms / UPDATE_TIME_FREQUENCY).toInt()) {
+                if (it != 0) { // except for the first iteration
+                    phaseChange.phase = null
+                }
+                broadcast(gson.toJson(phaseChange))
+                phaseChange.time -= UPDATE_TIME_FREQUENCY
+                delay(UPDATE_TIME_FREQUENCY)
+            }
+
+            phase = when(phase) {
+                Phase.WAITING_FOR_START -> Phase.NEW_ROUND
+                Phase.GAME_RUNNING -> Phase.AFTER_GAME
+                Phase.AFTER_GAME -> Phase.NEW_ROUND
+                Phase.NEW_ROUND -> Phase.GAME_RUNNING
+                else -> Phase.WAITING_FOR_PLAYERS
+            }
+        }
+    }
+
     suspend fun broadcast(message: String) {
         players.forEach { player ->
             if (player.socket.isActive) {
@@ -87,11 +117,23 @@ class Room(
     }
 
     private fun waitingForPlayers() {
-
+        GlobalScope.launch {
+            timeAndNotify(DELAY_WAITING_FOR_START_TO_NEW_ROUND)
+            val phaseChange = PhaseChange(
+                Phase.WAITING_FOR_START,
+                DELAY_WAITING_FOR_START_TO_NEW_ROUND)
+            broadcast(gson.toJson(phaseChange))
+        }
     }
 
     private fun waitingForStart() {
-
+        GlobalScope.launch {
+            val phaseChange = PhaseChange(
+                Phase.WAITING_FOR_PLAYERS,
+                DELAY_WAITING_FOR_START_TO_NEW_ROUND
+            )
+            broadcast(gson.toJson(phaseChange))
+        }
     }
 
     private fun newRound() {
@@ -112,5 +154,14 @@ class Room(
         NEW_ROUND,
         GAME_RUNNING,
         AFTER_GAME
+    }
+
+    companion object {
+        const val UPDATE_TIME_FREQUENCY = 1000L
+
+        const val DELAY_WAITING_FOR_START_TO_NEW_ROUND = 10000L
+        const val DELAY_NEW_ROUND_TO_GAME_RUNNING = 20000L
+        const val DELAY_GAME_RUNNING_TO_AFTER_GAME = 60000L
+        const val DELAY_AFTER_GAME_TO_NEW_ROUND = 10000L
     }
 }
