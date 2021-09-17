@@ -1,5 +1,6 @@
 package com.tsato
 
+import com.google.gson.Gson
 import com.tsato.routes.createRoomRoutes
 import com.tsato.routes.getRoomsRoute
 import com.tsato.routes.joinRoomRoute
@@ -21,6 +22,7 @@ import java.time.*
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
 val server = DrawingServer()
+val gson = Gson()
 
 @Suppress("unused") // referenced in Application.conf
 @kotlin.jvm.JvmOverloads
