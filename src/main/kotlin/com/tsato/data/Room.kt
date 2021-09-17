@@ -1,6 +1,7 @@
 package com.tsato.data
 
 import com.tsato.data.models.Announcement
+import com.tsato.data.models.ChosenWord
 import com.tsato.data.models.PhaseChange
 import com.tsato.gson
 import io.ktor.http.cio.websocket.*
@@ -13,6 +14,8 @@ class Room(
 ) {
     private var timerJob: Job? = null
     private var drawingPlayer: Player? = null
+    private var winningPlayers = listOf<String>()
+    private var word: String? = null
 
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
@@ -116,6 +119,11 @@ class Room(
         return players.find { it.userName == userName } != null
     }
 
+    fun setWordAndSwitchToGameRunning(word: String) {
+        this.word = word
+        phase = Phase.GAME_RUNNING
+    }
+
     private fun waitingForPlayers() {
         GlobalScope.launch {
             timeAndNotify(DELAY_WAITING_FOR_START_TO_NEW_ROUND)
@@ -145,7 +153,23 @@ class Room(
     }
 
     private fun afterGame() {
+        GlobalScope.launch {
+            if (winningPlayers.isEmpty()) {
+                drawingPlayer?.let {
+                    it.score -= PENALTY_NOBODY_GUESSED
+                }
+            }
 
+            word?.let {
+                val chosenWord = ChosenWord(it, name)
+                broadcast(gson.toJson(chosenWord))
+            }
+
+            timeAndNotify(DELAY_AFTER_GAME_TO_NEW_ROUND)
+
+            val phaseChange = PhaseChange(Phase.AFTER_GAME, DELAY_AFTER_GAME_TO_NEW_ROUND)
+            broadcast(gson.toJson(phaseChange))
+        }
     }
 
     enum class Phase {
@@ -163,5 +187,7 @@ class Room(
         const val DELAY_NEW_ROUND_TO_GAME_RUNNING = 20000L
         const val DELAY_GAME_RUNNING_TO_AFTER_GAME = 60000L
         const val DELAY_AFTER_GAME_TO_NEW_ROUND = 10000L
+
+        const val PENALTY_NOBODY_GUESSED = 15
     }
 }

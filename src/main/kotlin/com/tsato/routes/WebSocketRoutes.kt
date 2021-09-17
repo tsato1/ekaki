@@ -9,6 +9,7 @@ import com.tsato.server
 import com.tsato.session.DrawingSession
 import com.tsato.util.Constants.TYPE_ANNOUNCEMENT
 import com.tsato.util.Constants.TYPE_CHAT_MESSAGE
+import com.tsato.util.Constants.TYPE_CHOSEN_WORD
 import com.tsato.util.Constants.TYPE_DRAW_DATA
 import com.tsato.util.Constants.TYPE_JOIN_ROOM_HANDSHAKE
 import com.tsato.util.Constants.TYPE_PHASE_CHANGE
@@ -46,6 +47,10 @@ fun Route.gameWebSocketRoute() {
                     if (!room.containsPlayer(player.userName)) {
                         room.addPlayer(player.clientId, player.userName, socket)
                     }
+                }
+                is ChosenWord -> {
+                    val room = server.rooms[payload.roomName] ?: return@standardWebSocket
+                    room.setWordAndSwitchToGameRunning(payload.chosenWord)
                 }
             }
         }
@@ -89,6 +94,7 @@ fun Route.standardWebSocket(
                         TYPE_ANNOUNCEMENT -> Announcement::class.java
                         TYPE_JOIN_ROOM_HANDSHAKE -> JoinRoomHandshake::class.java
                         TYPE_PHASE_CHANGE -> PhaseChange::class.java
+                        TYPE_CHOSEN_WORD -> ChosenWord::class.java
                         // TYPE_GAME_ERROR is only sent from the server side. no need to add here
                         else -> BaseModel::class.java
                     }
