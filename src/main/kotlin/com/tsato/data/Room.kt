@@ -1,5 +1,7 @@
 package com.tsato.data
 
+import com.tsato.data.models.Announcement
+import com.tsato.gson
 import io.ktor.http.cio.websocket.*
 import kotlinx.coroutines.isActive
 
@@ -33,6 +35,32 @@ class Room(
                 Phase.AFTER_GAME -> afterGame()
             }
         }
+    }
+
+    suspend fun addPlayer(clientId: String, userName: String, webSocketSession: WebSocketSession): Player {
+        val player = Player(userName, webSocketSession, clientId)
+        players = players + player // player list has to be immutable in multi-threaded situation
+
+        if (players.size == 1) {
+            phase = Phase.WAITING_FOR_PLAYERS
+        }
+        else if (players.size == 2 && phase == Phase.WAITING_FOR_PLAYERS) {
+            phase = Phase.WAITING_FOR_START
+            players = players.shuffled()
+        }
+        else if (phase == Phase.WAITING_FOR_START && players.size == maxPlayers) {
+            phase = Phase.NEW_ROUND
+            players = players.shuffled()
+        }
+
+        val announcement = Announcement(
+            "$userName joined the party",
+            System.currentTimeMillis(),
+            Announcement.TYPE_PLAYER_JOINED
+        )
+
+        broadcast(gson.toJson(announcement))
+        return player
     }
 
     suspend fun broadcast(message: String) {

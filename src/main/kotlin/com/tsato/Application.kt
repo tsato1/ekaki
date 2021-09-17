@@ -2,6 +2,7 @@ package com.tsato
 
 import com.google.gson.Gson
 import com.tsato.routes.createRoomRoutes
+import com.tsato.routes.gameWebSocketRoute
 import com.tsato.routes.getRoomsRoute
 import com.tsato.routes.joinRoomRoute
 import com.tsato.session.DrawingSession
@@ -43,6 +44,7 @@ fun Application.module(testing: Boolean = false) {
         createRoomRoutes()
         getRoomsRoute()
         joinRoomRoute()
+        gameWebSocketRoute()
     }
 
     install(ContentNegotiation) {

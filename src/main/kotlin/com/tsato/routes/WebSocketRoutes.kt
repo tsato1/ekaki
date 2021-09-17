@@ -1,15 +1,16 @@
 package com.tsato.routes
 
 import com.google.gson.JsonParser
+import com.tsato.data.Player
 import com.tsato.data.Room
-import com.tsato.data.models.BaseModel
-import com.tsato.data.models.ChatMessage
-import com.tsato.data.models.DrawData
+import com.tsato.data.models.*
 import com.tsato.gson
 import com.tsato.server
 import com.tsato.session.DrawingSession
+import com.tsato.util.Constants.TYPE_ANNOUNCEMENT
 import com.tsato.util.Constants.TYPE_CHAT_MESSAGE
 import com.tsato.util.Constants.TYPE_DRAW_DATA
+import com.tsato.util.Constants.TYPE_JOIN_ROOM_HANDSHAKE
 import io.ktor.http.cio.websocket.*
 import io.ktor.routing.*
 import io.ktor.sessions.*
@@ -28,6 +29,22 @@ fun Route.gameWebSocketRoute() {
                 }
                 is ChatMessage -> {
 
+                }
+                is JoinRoomHandshake -> {
+                    val room = server.rooms[payload.roomName]
+                    if (room == null) {
+                        val gameError = GameError(GameError.ERROR_ROOM_NOT_FOUND)
+                        socket.send(Frame.Text(gson.toJson(gameError)))
+                        return@standardWebSocket
+                    }
+
+                    val player = Player(payload.userName, socket, payload.clientId)
+
+                    server.playerJoined(player)
+
+                    if (!room.containsPlayer(player.userName)) {
+                        room.addPlayer(player.clientId, player.userName, socket)
+                    }
                 }
             }
         }
@@ -68,6 +85,9 @@ fun Route.standardWebSocket(
                     val type = when (jsonObject.get("type").asString) {
                         TYPE_DRAW_DATA -> DrawData::class.java
                         TYPE_CHAT_MESSAGE -> ChatMessage::class.java
+                        TYPE_ANNOUNCEMENT -> Announcement::class.java
+                        TYPE_JOIN_ROOM_HANDSHAKE -> JoinRoomHandshake::class.java
+                        // TYPE_GAME_ERROR is only sent from the server side. no need to add here
                         else -> BaseModel::class.java
                     }
                     val payload = gson.fromJson(message, type)
