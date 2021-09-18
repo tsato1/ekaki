@@ -30,9 +30,6 @@ fun Route.gameWebSocketRoute() {
                         room.broadcastToAllExcept(message, clientId)
                     }
                 }
-                is ChatMessage -> {
-
-                }
                 is JoinRoomHandshake -> {
                     val room = server.rooms[payload.roomName]
                     if (room == null) {
@@ -52,6 +49,14 @@ fun Route.gameWebSocketRoute() {
                 is ChosenWord -> {
                     val room = server.rooms[payload.roomName] ?: return@standardWebSocket
                     room.setWordAndSwitchToGameRunning(payload.chosenWord)
+                }
+                is ChatMessage -> { // when any player writes any message in chat, go in here
+                    val room = server.rooms[payload.roomName] ?: return@standardWebSocket
+                    // if the guess was right, handle the case in "checkWordAndNotifyPlayers" function
+                    // otherwise: treat the message as a normal message
+                    if (!room.checkWordAndNotifyPlayers(payload)) {
+                        room.broadcast(message)
+                    }
                 }
             }
         }
