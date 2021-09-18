@@ -10,10 +10,13 @@ import com.tsato.session.DrawingSession
 import com.tsato.util.Constants.TYPE_ANNOUNCEMENT
 import com.tsato.util.Constants.TYPE_CHAT_MESSAGE
 import com.tsato.util.Constants.TYPE_CHOSEN_WORD
+import com.tsato.util.Constants.TYPE_DISCONNECT_REQUEST
+import com.tsato.util.Constants.TYPE_DRAW_ACTION
 import com.tsato.util.Constants.TYPE_DRAW_DATA
 import com.tsato.util.Constants.TYPE_GAME_STATE
 import com.tsato.util.Constants.TYPE_JOIN_ROOM_HANDSHAKE
 import com.tsato.util.Constants.TYPE_PHASE_CHANGE
+import com.tsato.util.Constants.TYPE_PING
 import io.ktor.http.cio.websocket.*
 import io.ktor.routing.*
 import io.ktor.sessions.*
@@ -28,7 +31,14 @@ fun Route.gameWebSocketRoute() {
                     val room = server.rooms[payload.roomName] ?: return@standardWebSocket
                     if (room.phase == Room.Phase.GAME_RUNNING) {
                         room.broadcastToAllExcept(message, clientId)
+                        room.addSerializedDrawInfo(message)
                     }
+                    room.lastDrawData = payload
+                }
+                is DrawAction -> {
+                    val room = server.getRoomWithClientId(clientId) ?: return@standardWebSocket
+                    room.broadcastToAllExcept(message, clientId)
+                    room.addSerializedDrawInfo(message)
                 }
                 is JoinRoomHandshake -> {
                     val room = server.rooms[payload.roomName]
@@ -45,6 +55,11 @@ fun Route.gameWebSocketRoute() {
                     if (!room.containsPlayer(player.userName)) {
                         room.addPlayer(player.clientId, player.userName, socket)
                     }
+                    else { // player disconnects and immediately reconnects afterwards quicker than PING_FREQUENCY
+                        val playerInRoom = room.players.find { it.clientId == clientId }
+                        playerInRoom?.socket = socket
+                        playerInRoom?.startPing()
+                    }
                 }
                 is ChosenWord -> {
                     val room = server.rooms[payload.roomName] ?: return@standardWebSocket
@@ -57,6 +72,12 @@ fun Route.gameWebSocketRoute() {
                     if (!room.checkWordAndNotifyPlayers(payload)) {
                         room.broadcast(message)
                     }
+                }
+                is Ping -> {
+                    server.players[clientId]?.receivedPongTime()
+                }
+                is DisconnectRequest -> {
+                    server.playerLeft(clientId, true)
                 }
             }
         }
@@ -102,6 +123,9 @@ fun Route.standardWebSocket(
                         TYPE_PHASE_CHANGE -> PhaseChange::class.java
                         TYPE_CHOSEN_WORD -> ChosenWord::class.java
                         TYPE_GAME_STATE -> GameState::class.java
+                        TYPE_PING -> Ping::class.java
+                        TYPE_DISCONNECT_REQUEST -> DisconnectRequest::class.java
+                        TYPE_DRAW_ACTION -> DrawAction::class.java
                         // TYPE_GAME_ERROR is only sent from the server side. no need to add here
                         else -> BaseModel::class.java
                     }

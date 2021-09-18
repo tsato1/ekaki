@@ -31,6 +31,10 @@ class Room(
     private val playerRemoveJobsMap = ConcurrentHashMap<String, Job>()
     private val leftPlayersMap = ConcurrentHashMap<String, Pair<Player, Int>>()
 
+    private var currRoundDrawData: List<String> = listOf()
+
+    var lastDrawData: DrawData? = null
+
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
         set(value) {
@@ -54,6 +58,27 @@ class Room(
                 Phase.NEW_ROUND -> newRound()
                 Phase.GAME_RUNNING -> gameRunning()
                 Phase.AFTER_GAME -> afterGame()
+            }
+        }
+    }
+
+    private suspend fun sendCurrRoundDrawInfoToPlayer(player: Player) {
+        // when current drawing is visible, send the serialized draw info to player
+        if (phase == Phase.GAME_RUNNING || phase == Phase.AFTER_GAME) {
+            player.socket.send(Frame.Text(gson.toJson(RoundDrawInfo(currRoundDrawData))))
+        }
+    }
+
+    fun addSerializedDrawInfo(drawAction: String) {
+        currRoundDrawData = currRoundDrawData + drawAction
+
+    }
+
+    private suspend fun finishOffDrawing() {
+        lastDrawData?.let {
+            if (currRoundDrawData.isNotEmpty() && it.motionEvent == 2) { // 2 == action move
+                val finishDrawData = it.copy(motionEvent = 1) // 1 == action up
+                broadcast(gson.toJson(finishDrawData))
             }
         }
     }
@@ -108,6 +133,7 @@ class Room(
 
         sendWordToPlayers(player)
         broadcastPlayerStates()
+        sendCurrRoundDrawInfoToPlayer(player)
         broadcast(gson.toJson(announcement))
         return player
     }
@@ -168,9 +194,15 @@ class Room(
 
             phase = when(phase) {
                 Phase.WAITING_FOR_START -> Phase.NEW_ROUND
-                Phase.GAME_RUNNING -> Phase.AFTER_GAME
+                Phase.GAME_RUNNING -> {
+                    finishOffDrawing()
+                    Phase.AFTER_GAME
+                }
                 Phase.AFTER_GAME -> Phase.NEW_ROUND
-                Phase.NEW_ROUND -> Phase.GAME_RUNNING
+                Phase.NEW_ROUND -> { // if the drawing player didn't choose word in time
+                    word = null
+                    Phase.GAME_RUNNING
+                }
                 else -> Phase.WAITING_FOR_PLAYERS
             }
         }
@@ -232,6 +264,7 @@ class Room(
     }
 
     private fun newRound() {
+        currRoundDrawData = listOf()
         currWords = getRandomWords(3)
         val newWords = NewWords(currWords!!)
         setNextDrawingPlayer()
