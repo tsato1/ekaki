@@ -1,10 +1,8 @@
 package com.tsato.data
 
-import com.tsato.data.models.Announcement
-import com.tsato.data.models.ChosenWord
-import com.tsato.data.models.GameState
-import com.tsato.data.models.PhaseChange
+import com.tsato.data.models.*
 import com.tsato.gson
+import com.tsato.util.getRandomWords
 import com.tsato.util.transformToUnderscores
 import com.tsato.util.words
 import io.ktor.http.cio.websocket.*
@@ -20,6 +18,7 @@ class Room(
     private var winningPlayers = listOf<String>() // contains the players who guessed the word right in one round
     private var word: String? = null
     private var currWords: List<String>? = null // contains current 3 words that drawer can choose from
+    private var drawingPlayerIndex = 0 // index of the currently drawing player in the players list
 
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
@@ -149,7 +148,13 @@ class Room(
     }
 
     private fun newRound() {
-
+        currWords = getRandomWords(3)
+        val newWords = NewWords(currWords!!)
+        setNextDrawingPlayer()
+        GlobalScope.launch {
+            drawingPlayer?.socket?.send(Frame.Text(gson.toJson(newWords)))
+            timeAndNotify(DELAY_NEW_ROUND_TO_GAME_RUNNING)
+        }
     }
 
     private fun gameRunning() {
@@ -194,6 +199,25 @@ class Room(
             val phaseChange = PhaseChange(Phase.AFTER_GAME, DELAY_AFTER_GAME_TO_NEW_ROUND)
             broadcast(gson.toJson(phaseChange))
         }
+    }
+
+    private fun setNextDrawingPlayer() {
+        drawingPlayer?.isDrawing = false
+
+        if (players.isEmpty())
+            return
+
+        drawingPlayer = if (drawingPlayerIndex <= players.size - 1) {
+            players[drawingPlayerIndex]
+        }
+        else {
+            players.last()
+        }
+
+        if (drawingPlayerIndex < players.size - 1)
+            drawingPlayerIndex++
+        else
+            drawingPlayerIndex = 0
     }
 
     enum class Phase {
