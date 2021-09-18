@@ -2,8 +2,11 @@ package com.tsato.data
 
 import com.tsato.data.models.Announcement
 import com.tsato.data.models.ChosenWord
+import com.tsato.data.models.GameState
 import com.tsato.data.models.PhaseChange
 import com.tsato.gson
+import com.tsato.util.transformToUnderscores
+import com.tsato.util.words
 import io.ktor.http.cio.websocket.*
 import kotlinx.coroutines.*
 
@@ -14,8 +17,9 @@ class Room(
 ) {
     private var timerJob: Job? = null
     private var drawingPlayer: Player? = null
-    private var winningPlayers = listOf<String>()
+    private var winningPlayers = listOf<String>() // contains the players who guessed the word right in one round
     private var word: String? = null
+    private var currWords: List<String>? = null // contains current 3 words that drawer can choose from
 
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
@@ -149,7 +153,27 @@ class Room(
     }
 
     private fun gameRunning() {
+        winningPlayers = listOf()
 
+        // if word is null, the player didn't choose the word in time -> choose randomly from currWords
+        //                                     if still null, -> choose randomly from words (this shouldn't happen)
+        val wordToSend = word ?: currWords?.random() ?: words.random()
+        val wordWithUnderscores = wordToSend.transformToUnderscores()
+        val drawingUserName = (drawingPlayer ?: players.random()).userName // drawingPlayer shouldn't be null
+
+        val gameStateForDrawingPlayer = GameState(drawingUserName, wordToSend)
+        val gameStateForGuessingPlayers = GameState(drawingUserName, wordWithUnderscores)
+
+        GlobalScope.launch {
+            broadcastToAllExcept(
+                gson.toJson(gameStateForGuessingPlayers),
+                drawingPlayer?.clientId ?: players.random().clientId
+            )
+            drawingPlayer?.socket?.send(Frame.Text(gson.toJson(gameStateForDrawingPlayer)))
+
+            timeAndNotify(DELAY_GAME_RUNNING_TO_AFTER_GAME)
+            println("Drawing phase in room $name started. It will run for ${DELAY_GAME_RUNNING_TO_AFTER_GAME / 1000}s")
+        }
     }
 
     private fun afterGame() {

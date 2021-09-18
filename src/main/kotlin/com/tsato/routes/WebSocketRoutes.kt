@@ -11,6 +11,7 @@ import com.tsato.util.Constants.TYPE_ANNOUNCEMENT
 import com.tsato.util.Constants.TYPE_CHAT_MESSAGE
 import com.tsato.util.Constants.TYPE_CHOSEN_WORD
 import com.tsato.util.Constants.TYPE_DRAW_DATA
+import com.tsato.util.Constants.TYPE_GAME_STATE
 import com.tsato.util.Constants.TYPE_JOIN_ROOM_HANDSHAKE
 import com.tsato.util.Constants.TYPE_PHASE_CHANGE
 import io.ktor.http.cio.websocket.*
@@ -95,6 +96,7 @@ fun Route.standardWebSocket(
                         TYPE_JOIN_ROOM_HANDSHAKE -> JoinRoomHandshake::class.java
                         TYPE_PHASE_CHANGE -> PhaseChange::class.java
                         TYPE_CHOSEN_WORD -> ChosenWord::class.java
+                        TYPE_GAME_STATE -> GameState::class.java
                         // TYPE_GAME_ERROR is only sent from the server side. no need to add here
                         else -> BaseModel::class.java
                     }
