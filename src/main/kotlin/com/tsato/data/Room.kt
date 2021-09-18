@@ -2,13 +2,14 @@ package com.tsato.data
 
 import com.tsato.data.models.*
 import com.tsato.gson
+import com.tsato.server
 import com.tsato.util.getRandomWords
 import com.tsato.util.matchesWord
 import com.tsato.util.transformToUnderscores
 import com.tsato.util.words
 import io.ktor.http.cio.websocket.*
 import kotlinx.coroutines.*
-import kotlin.math.round
+import java.util.concurrent.ConcurrentHashMap
 
 class Room(
     val name: String,
@@ -22,6 +23,13 @@ class Room(
     private var currWords: List<String>? = null // contains current 3 words that drawer can choose from
     private var drawingPlayerIndex = 0 // index of the currently drawing player in the players list
     private var startTimeStamp = 0L
+
+    /*
+        playerRemoveJobs: saves the clientId of a player once the player disconnects, with the remove job that will be
+                            executed delayed after some time
+     */
+    private val playerRemoveJobsMap = ConcurrentHashMap<String, Job>()
+    private val leftPlayersMap = ConcurrentHashMap<String, Pair<Player, Int>>()
 
     private var phaseChangedListener: ((Phase) -> Unit)? = null
     var phase = Phase.WAITING_FOR_PLAYERS // current phase that is running now
@@ -51,8 +59,34 @@ class Room(
     }
 
     suspend fun addPlayer(clientId: String, userName: String, webSocketSession: WebSocketSession): Player {
-        val player = Player(userName, webSocketSession, clientId)
-        players = players + player // player list has to be immutable in multi-threaded situation
+        var indexToAdd = players.size - 1
+
+        val player = if (leftPlayersMap.containsKey(clientId)) {
+            val leftPlayer = leftPlayersMap[clientId]
+            leftPlayer?.first?.let {
+                it.socket = webSocketSession
+                it.isDrawing = clientId == drawingPlayer?.clientId
+                indexToAdd = leftPlayer.second
+
+                playerRemoveJobsMap[clientId]?.cancel()
+                playerRemoveJobsMap.remove(clientId)
+                leftPlayersMap.remove(clientId)
+                it
+            } ?: Player(userName, webSocketSession, clientId)
+        }
+        else { // there is no recently left players
+            Player(userName, webSocketSession, clientId)
+        }
+
+        indexToAdd = when {
+            players.isEmpty() -> 0
+            indexToAdd >= players.size -> players.size - 1 // other players had left as well
+            else -> indexToAdd
+        }
+
+        val tmpPlayer = players.toMutableList()
+        tmpPlayer.add(indexToAdd, player)
+        players = tmpPlayer.toList() // player list has to be immutable in multi-threaded situation
 
         if (players.size == 1) {
             phase = Phase.WAITING_FOR_PLAYERS
@@ -79,8 +113,38 @@ class Room(
     }
 
     fun removePlayer(clientId: String) {
+        val player = players.find { clientId == it.clientId } ?: return // player to be removed
+        val index = players.indexOf(player)
+        leftPlayersMap[clientId] = player to index
+        players = players - player
+
+        playerRemoveJobsMap[clientId] = GlobalScope.launch {
+            delay(PLAYER_REMOVE_TIME)
+            val playerToRemove = leftPlayersMap[clientId]
+            leftPlayersMap.remove(clientId)
+            playerToRemove?.let {
+                players = players - it.first // todo ???????????
+            }
+            playerRemoveJobsMap.remove(clientId)
+        }
+        val announcement = Announcement(
+            "${player.userName} left",
+            System.currentTimeMillis(),
+            Announcement.TYPE_PLAYER_LEFT
+        )
+
         GlobalScope.launch {
             broadcastPlayerStates()
+            broadcast(gson.toJson(announcement))
+
+            if (players.size == 1) {
+                phase = Phase.WAITING_FOR_PLAYERS
+                timerJob?.cancel()
+            }
+            else if (players.isEmpty()) {
+                kill()
+                server.rooms.remove(name)
+            }
         }
     }
 
@@ -335,6 +399,11 @@ class Room(
             drawingPlayerIndex = 0
     }
 
+    private fun kill() {
+        playerRemoveJobsMap.values.forEach { it.cancel() }
+        timerJob?.cancel()
+    }
+
     enum class Phase {
         WAITING_FOR_PLAYERS,
         WAITING_FOR_START,
@@ -345,6 +414,8 @@ class Room(
 
     companion object {
         const val UPDATE_TIME_FREQUENCY = 1000L
+
+        const val PLAYER_REMOVE_TIME = 60000L
 
         const val DELAY_WAITING_FOR_START_TO_NEW_ROUND = 10000L
         const val DELAY_NEW_ROUND_TO_GAME_RUNNING = 20000L
