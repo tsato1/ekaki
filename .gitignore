@@ -1,5 +1,8 @@
 /.gradle
 /.idea
+/.env
+/app.json
+/Procfile
 /out
 /build
 *.iml
